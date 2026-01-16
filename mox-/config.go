@@ -1298,6 +1298,41 @@ func prepareDynamicConfig(ctx context.Context, log mlog.Log, dynamicPath string,
 			sepSeen[sep] = true
 		}
 
+		// Validate chatmail configuration: TLS must be required for all connections
+		if domain.Chatmail {
+			// Check if any listener has TLS properly configured
+			hasRequireSTARTTLS := false
+			hasSubmissionWithTLS := false
+			hasIMAPWithTLS := false
+			
+			for _, l := range static.Listeners {
+				if l.SMTP.Enabled && l.SMTP.RequireSTARTTLS {
+					hasRequireSTARTTLS = true
+				}
+				if l.Submission.Enabled && !l.Submission.NoRequireSTARTTLS {
+					hasSubmissionWithTLS = true
+				}
+				if l.IMAP.Enabled && !l.IMAP.NoRequireSTARTTLS {
+					hasIMAPWithTLS = true
+				}
+				if l.IMAPS.Enabled {
+					hasIMAPWithTLS = true
+				}
+			}
+			
+			if !hasSubmissionWithTLS {
+				log.Error("chatmail domain requires TLS for submission, but no listener has submission with TLS required (NoRequireSTARTTLS must be false)", slog.String("domain", d))
+			}
+			if !hasIMAPWithTLS {
+				log.Error("chatmail domain requires TLS for IMAP, but no listener has IMAP/IMAPS with TLS required (NoRequireSTARTTLS must be false or use IMAPS)", slog.String("domain", d))
+			}
+			// Note: RequireSTARTTLS for incoming SMTP is recommended but not strictly required
+			// as we don't control how other servers connect to us
+			if !hasRequireSTARTTLS {
+				log.Info("chatmail domain configured, but no listener requires STARTTLS for incoming SMTP (recommended to set RequireSTARTTLS: true)", slog.String("domain", d))
+			}
+		}
+
 		for _, sign := range domain.DKIM.Sign {
 			if _, ok := domain.DKIM.Selectors[sign]; !ok {
 				addDomainErrorf("unknown selector %s for signing", sign)

@@ -3268,6 +3268,31 @@ func OpenEmailAuth(log mlog.Log, email string, password string, checkLoginDisabl
 	// messages about the account being disabled without knowing the password.
 	acc, accName, _, err := OpenEmail(log, email, false)
 	if err != nil {
+		// Check if this is a chatmail domain - if so, try auto-creating the account
+		if errors.Is(err, ErrUnknownCredentials) {
+			addr, parseErr := smtp.ParseAddress(email)
+			if parseErr == nil {
+				if domainConf, ok := mox.Conf.Domain(addr.Domain); ok && domainConf.Chatmail {
+					log.Debug("attempting auto-create for chatmail account", slog.String("email", email))
+					acc, accName, err = AutoCreateAccount(log, email, password)
+					if err == nil {
+						// Successfully created and authenticated
+						if checkLoginDisabled {
+							conf, aok := acc.Conf()
+							if !aok {
+								acc.Close()
+								return nil, "", fmt.Errorf("cannot find config for account")
+							} else if conf.LoginDisabled != "" {
+								acc.Close()
+								return nil, "", fmt.Errorf("%w: %s", ErrLoginDisabled, conf.LoginDisabled)
+							}
+						}
+						return acc, accName, nil
+					}
+					log.Debug("auto-create failed", slog.Any("err", err))
+				}
+			}
+		}
 		return nil, "", err
 	}
 
