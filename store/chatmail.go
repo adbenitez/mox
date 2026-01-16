@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,8 +55,8 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 		}
 		defer func() {
 			if err != nil {
-				err := acc.Close()
-				log.Check(err, "closing account after auth check")
+				closeErr := acc.Close()
+				log.Check(closeErr, "closing account after auth check")
 			}
 		}()
 
@@ -95,13 +93,25 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 		NoCustomPassword: false,
 	}
 
-	// Add account to configuration
-	nc := c
-	nc.Accounts = map[string]config.Account{}
-	for name, a := range c.Accounts {
-		nc.Accounts[name] = a
+	// Helper to build updated config with account added/removed
+	buildUpdatedConfig := func(addAccount bool) config.Dynamic {
+		updated := config.Dynamic{
+			Domains: c.Domains,
+			Accounts: map[string]config.Account{},
+		}
+		for name, a := range c.Accounts {
+			updated.Accounts[name] = a
+		}
+		if addAccount {
+			updated.Accounts[accountName] = accConf
+		} else {
+			delete(updated.Accounts, accountName)
+		}
+		return updated
 	}
-	nc.Accounts[accountName] = accConf
+
+	// Add account to configuration
+	nc := buildUpdatedConfig(true)
 
 	// Write updated configuration
 	if err := mox.WriteDynamicLocked(context.Background(), log, nc); err != nil {
@@ -112,11 +122,7 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 	acc, err := OpenAccount(log, accountName, false)
 	if err != nil {
 		// Try to remove the account from config on failure
-		nc.Accounts = map[string]config.Account{}
-		for name, a := range c.Accounts {
-			nc.Accounts[name] = a
-		}
-		delete(nc.Accounts, accountName)
+		nc = buildUpdatedConfig(false)
 		_ = mox.WriteDynamicLocked(context.Background(), log, nc)
 		return nil, "", fmt.Errorf("opening new account: %w", err)
 	}
@@ -125,11 +131,7 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 	if err := acc.SetPassword(log, password); err != nil {
 		// Clean up on failure
 		acc.Close()
-		nc.Accounts = map[string]config.Account{}
-		for name, a := range c.Accounts {
-			nc.Accounts[name] = a
-		}
-		delete(nc.Accounts, accountName)
+		nc = buildUpdatedConfig(false)
 		_ = mox.WriteDynamicLocked(context.Background(), log, nc)
 		os.RemoveAll(accountDir)
 		return nil, "", fmt.Errorf("setting password: %w", err)
@@ -137,15 +139,4 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 
 	log.Info("auto-created chatmail account", slog.String("account", accountName), slog.String("email", email))
 	return acc, accountName, nil
-}
-
-// generatePassword generates a random password for auto-created accounts.
-// Not used currently, but kept for potential future use if we want to
-// generate passwords instead of accepting user-provided ones.
-func generatePassword() (string, error) {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
