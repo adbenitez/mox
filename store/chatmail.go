@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -134,7 +135,7 @@ func AutoCreateAccount(log mlog.Log, email, password string) (*Account, string, 
 		return nil, "", fmt.Errorf("setting password: %w", err)
 	}
 
-	log.Info("auto-created chatmail account", mlog.Field("account", accountName), mlog.Field("email", email))
+	log.Info("auto-created chatmail account", slog.String("account", accountName), slog.String("email", email))
 	return acc, accountName, nil
 }
 

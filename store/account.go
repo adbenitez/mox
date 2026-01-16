@@ -3273,7 +3273,7 @@ func OpenEmailAuth(log mlog.Log, email string, password string, checkLoginDisabl
 			addr, parseErr := smtp.ParseAddress(email)
 			if parseErr == nil {
 				if domainConf, ok := mox.Conf.Domain(addr.Domain); ok && domainConf.Chatmail {
-					log.Debug("attempting auto-create for chatmail account", mlog.Field("email", email))
+					log.Debug("attempting auto-create for chatmail account", slog.String("email", email))
 					acc, accName, err = AutoCreateAccount(log, email, password)
 					if err == nil {
 						// Successfully created and authenticated
@@ -3289,7 +3289,7 @@ func OpenEmailAuth(log mlog.Log, email string, password string, checkLoginDisabl
 						}
 						return acc, accName, nil
 					}
-					log.Debug("auto-create failed", mlog.Field("err", err))
+					log.Debug("auto-create failed", slog.Any("err", err))
 				}
 			}
 		}
